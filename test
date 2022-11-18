@@ -1,0 +1,920 @@
+<template>
+  <div class="">
+    <SubHeader
+      :title="$t('area_list')"
+      :linkTitle="$t('home')"
+      :noLinkTitle="$t('race_list')"
+      :detailTitle="raceDetail.nm_race"
+      :pageTitle="$t('area_list')"
+    ></SubHeader>
+    <div class="area">
+      <div class="img-top">
+        <!--<img :src="img" alt="" v-show="isPc">-->
+        <div
+          class="touch d-flex justify-content-center align-items-center"
+          @click="touchGuide"
+          ref="guide"
+          v-if="!isPc"
+        >
+          <div>
+            <Vue3Lottie :animationData="CheckJson" :height="200" :width="200" />
+            <div class="text">
+              １度タッチ後に、２本の指で画面をピンチイン・ピンチアウトして、地図を拡大縮小できます。
+            </div>
+          </div>
+        </div>
+        <div ref="bodyWidth"></div>
+        <canvas id="canvas" ref="canvas"></canvas>
+      </div>
+      <div class="note d-flex align-items-center">
+        <div class="note-item"><span class="signal"></span>競技エリア</div>
+        <div class="note-item"><span class="signal"></span>パドックエリア</div>
+        <div class="note-item">
+          <span class="signal"></span>自由席、イベント広場
+        </div>
+        <div class="note-item"><span class="signal"></span>スタンド席</div>
+        <div class="note-item"><span class="signal"></span>駐車場</div>
+      </div>
+      <div class="content">
+        <div class="mypage-info">
+          <div class="group-info">
+            <div class="head d-flex align-items-center">
+              <span>{{ $t("area_list") }}</span>
+            </div>
+
+            <div class="collapse-list" v-for="(area, i, key) in areas">
+              <b-button
+                v-b-toggle
+                variant="primary"
+                data-bs-toggle="collapse"
+                :data-bs-target="'#' + i"
+                >{{ i }}({{ area.length }})</b-button
+              >
+              <b-collapse :id="i" class="collapse-content">
+                <b-card>
+                  <div class="row">
+                    <div class="col-4" v-for="(item, j) in area">
+                      <label
+                        class="radio-button"
+                        :tabindex="key + j"
+                        :for="'type_' + key + j"
+                      >
+                        <input
+                          :id="'type_' + key + j"
+                          :class="{ 'radio-button__input': true }"
+                          type="radio"
+                          name="name"
+                          :value="item.id_area"
+                          v-model="type"
+                        />
+                        <span class="radio-button__control"></span
+                        ><span class="radio-button__label radio-label">{{
+                          item.nm_area
+                        }}</span>
+                      </label>
+                    </div>
+                  </div>
+                </b-card>
+              </b-collapse>
+            </div>
+
+            <div
+              class="collapse-list"
+              v-for="raceMap in listOfArea"
+              :key="raceMap.id"
+            >
+              <b-button
+                v-b-toggle
+                variant="primary"
+                data-bs-toggle="collapse"
+                :data-bs-target="'#' + raceMap.collapse_id"
+                >{{ $t(raceMap.name + "(" + raceMap.listArea.length) + ")" }}
+              </b-button>
+              <b-collapse :id="raceMap.collapse_id" class="collapse-content">
+                <b-card>
+                  <div class="row">
+                    <div
+                      class="col-4"
+                      v-for="raceArea in raceMap.listArea"
+                      :key="raceArea.id"
+                    >
+                      <label
+                        class="radio-button"
+                        :tabindex="raceArea.id"
+                        :for="raceArea.type"
+                      >
+                        <input
+                          :id="raceArea.type"
+                          :class="{ 'radio-button__input': true }"
+                          type="radio"
+                          name="name"
+                          :value="raceArea.value"
+                          v-model="type"
+                        />
+                        <span class="radio-button__control"></span
+                        ><span class="radio-button__label radio-label">{{
+                          raceArea.area
+                        }}</span>
+                      </label>
+                    </div>
+                  </div>
+                </b-card>
+              </b-collapse>
+            </div>
+          </div>
+        </div>
+
+        <div
+          :class="{ 'd-flex align-items-center justify-content-center': true }"
+          v-if="isPc"
+        >
+          <button
+            type="button"
+            :class="{ 'btn btn-default': true, active: type }"
+            @click="toSelectedTicket(type)"
+          >
+            {{ $t("next") }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div
+      :class="{
+        'd-flex align-items-center justify-content-center': true,
+        active: type,
+      }"
+      v-if="!isPc"
+    >
+      <button
+        type="button"
+        :class="{ 'btn btn-default': true, active: type }"
+        @click="toSelectedTicket(type)"
+      >
+        {{ $t("next") }}
+      </button>
+    </div>
+    <div
+            :class="{
+        'd-flex align-items-center justify-content-center': true,
+        active: type,
+      }"
+            v-if="!isPc"
+    >
+      <button
+              type="button"
+              :class="{ 'btn btn-back': true, active: type }"
+              @click="$router.push({
+                name: 'RaceDetail',
+                params: {
+                  id: $route.params['race_id']
+                }
+              })"
+      >
+        {{ $t('back_race_detail') }}
+      </button>
+    </div>
+  </div>
+</template>
+<script lang="ts">
+import { defineComponent, ref } from "vue";
+import { mapActions, mapState } from "pinia";
+import SubHeader from "@/components/SubHeader.vue";
+import CheckJson from "@/assets/pinch.json";
+import "moment/locale/ja";
+import { useAreaStore } from "@/stores/area";
+import { useUserStore } from "@/stores/user";
+import { useErrorStore } from "@/stores/error";
+import _ from "lodash";
+
+export default defineComponent({
+  setup() {
+    const storeArea = useAreaStore();
+    const storeError = useErrorStore();
+    const isPc = ref<boolean>(window.innerWidth > 768);
+    return { isPc, storeArea, storeError };
+  },
+  components: {
+    SubHeader,
+  },
+
+  data: () => ({
+    CheckJson,
+    type: null,
+    img: "/images/map.png",
+    areas: {},
+    areaOrigins: {},
+    style: {},
+    raceDetail: {},
+  }),
+  watch: {
+    type() {
+      this.canvas(this.type);
+      this.$forceUpdate();
+    },
+  },
+  computed: {},
+  methods: {
+    ...mapActions(useAreaStore, ["getAreas"]),
+    ...mapActions(useUserStore, ["getRaceDetail"]),
+    touchGuide() {
+      this.$refs.guide.classList.add("none");
+    },
+    onResize() {
+      if (this.$refs.canvas.classList !== undefined) {
+        this.$refs.canvas.classList.add("none");
+        let canvas = document.getElementById("canvas");
+        const context = canvas.getContext("2d");
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        const ratio = 486 / 864;
+        this.style = {
+          width: this.$refs.bodyWidth.clientWidth + "px",
+          height: this.$refs.bodyWidth.clientWidth * ratio + "px",
+        };
+        setTimeout(() => {
+          this.canvas();
+          this.$refs.canvas.classList.remove("none");
+        }, 100);
+      }
+    },
+    canvas(type: String) {
+      const index = _.findIndex(this.areaOrigins, (area) => {
+        return area.id_area == this.type;
+      });
+      let highlightArea = {};
+      if (index > 0) {
+        highlightArea = this.areaOrigins[index];
+      }
+      const base_image2 = new Image();
+      if (
+        highlightArea["path_image_on"] !== null &&
+        highlightArea["path_image_on"] !== undefined
+      ) {
+        base_image2.src = highlightArea["path_image_on"];
+      }
+      let canvas = document.getElementById("canvas");
+      let ctx = canvas.getContext("2d");
+      let windowWidth: number | null = null;
+      let windowHeight: number | null = null;
+      const ratio = 486 / 864;
+      if (this.isPc) {
+        windowWidth = this.$refs.canvas.clientWidth;
+        windowHeight = this.$refs.canvas.clientWidth * ratio;
+      } else {
+        windowWidth = this.$refs.canvas.clientWidth;
+        windowHeight = this.$refs.canvas.clientWidth;
+      }
+
+      let cameraOffset = { x: windowWidth / 2, y: windowHeight / 2 };
+      let cameraZoom = 1;
+      let MAX_ZOOM = 5;
+
+      let SCROLL_SENSITIVITY = 0.0005;
+      const base_image = new Image();
+      base_image.src = "/images/map_base@2x.png";
+      let MIN_ZOOM = windowWidth / base_image.width;
+
+      const draw = () => {
+        canvas.width = windowWidth;
+        canvas.height = windowHeight;
+
+        // Translate to the canvas centre before zooming - so you'll always zoom on what you're looking directly at
+        ctx.translate(window.innerWidth / 2, windowHeight / 2);
+
+        ctx.scale(cameraZoom, cameraZoom);
+
+        ctx.minScaleLimit = 0.5;
+        ctx.translate(
+          -window.innerWidth / 2 + cameraOffset.x,
+          -windowHeight / 2 + cameraOffset.y
+        );
+        ctx.clearRect(0, 0, window.innerWidth, windowHeight);
+
+        const base_image = new Image();
+        if (!type) {
+          if (this.isPc) {
+            base_image.src = "/images/map_base@2x.png";
+          } else {
+            base_image.src = "/images/map_base@2x.png";
+          }
+
+          if (this.isPc) {
+            ctx.drawImage(
+              base_image,
+              0,
+              0,
+              base_image.width,
+              base_image.height,
+              -canvas.width / 2,
+              -canvas.height / 2,
+              canvas.width,
+              canvas.height
+            );
+          } else {
+            ctx.drawImage(
+              base_image,
+              -base_image.width / 2,
+              -base_image.height / 2
+            );
+          }
+        }
+
+        if (type) {
+          ctx.scale(1, 1);
+          base_image.src = "/images/map_base@2x.png";
+          // base_image2.src = '/images/map_hightlight_01@2x.png';
+          if (this.isPc) {
+            ctx.drawImage(
+              base_image,
+              0,
+              0,
+              base_image.width,
+              base_image.height,
+              -canvas.width / 2,
+              -canvas.height / 2,
+              canvas.width,
+              canvas.height
+            );
+            if (base_image2.src) {
+              ctx.drawImage(
+                base_image2,
+                0,
+                0,
+                base_image.width,
+                base_image.height,
+                -canvas.width / 2,
+                -canvas.height / 2,
+                canvas.width,
+                canvas.height
+              );
+            }
+          } else {
+            // ctx.drawImage(base_image, -466*2, -154*2);
+            // ctx.drawImage(base_image2, -466*2, -154*2);
+
+            ctx.drawImage(
+              base_image,
+              -highlightArea["x_top_left"],
+              -highlightArea["y_top_left"]
+            );
+            ctx.drawImage(
+              base_image2,
+              -highlightArea["x_top_left"],
+              -highlightArea["y_top_left"]
+            );
+          }
+        }
+        requestAnimationFrame(draw);
+      };
+
+      // Gets the relevant location from a mouse or single touch event
+      function getEventLocation(e: {
+        touches: string | any[];
+        clientX: any;
+        clientY: any;
+      }) {
+        if (e.touches && e.touches.length == 1) {
+          return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        } else if (e.clientX && e.clientY) {
+          return { x: e.clientX, y: e.clientY };
+        }
+      }
+
+      function drawRect(x: any, y: any, width: any, height: any) {
+        ctx.fillRect(x, y, width, height);
+      }
+
+      function drawText(text: any, x: any, y: any, size: any, font: any) {
+        ctx.font = `${size}px ${font}`;
+        ctx.fillText(text, x, y);
+      }
+
+      let isDragging = false;
+      let dragStart = { x: 0, y: 0 };
+
+      function onPointerDown(e: any) {
+        isDragging = true;
+        dragStart.x = getEventLocation(e).x / cameraZoom - cameraOffset.x;
+        dragStart.y = getEventLocation(e).y / cameraZoom - cameraOffset.y;
+        focusCanvasScroll();
+      }
+
+      function onPointerUp(e: any) {
+        isDragging = false;
+        initialPinchDistance = null;
+        lastZoom = cameraZoom;
+        unfocusCanvasScroll();
+      }
+
+      function onPointerMove(e: any) {
+        if (isDragging) {
+          cameraOffset.x = getEventLocation(e).x / cameraZoom - dragStart.x;
+          cameraOffset.y = getEventLocation(e).y / cameraZoom - dragStart.y;
+        }
+      }
+
+      function preventDefault(e: { preventDefault: () => void }) {
+        e.preventDefault();
+      }
+
+      let supportsPassive = false;
+      try {
+        window.addEventListener(
+          "test",
+          null,
+          Object.defineProperty({}, "passive", {
+            get: function () {
+              supportsPassive = true;
+            },
+          })
+        );
+      } catch (e) {}
+
+      const wheelOpt = supportsPassive ? { passive: false } : false;
+      const wheelEvent =
+        "onwheel" in document.createElement("div") ? "wheel" : "mousewheel";
+
+      function focusCanvasScroll() {
+        window.addEventListener("DOMMouseScroll", preventDefault, false);
+        window.addEventListener(wheelEvent, preventDefault, wheelOpt);
+        window.addEventListener("touchmove", preventDefault, wheelOpt);
+      }
+
+      function unfocusCanvasScroll() {
+        window.removeEventListener("DOMMouseScroll", preventDefault, false);
+        window.removeEventListener(wheelEvent, preventDefault, wheelOpt);
+        window.removeEventListener("touchmove", preventDefault, wheelOpt);
+      }
+
+      function handleTouch(
+        e: TouchEvent,
+        singleTouchHandler: {
+          (e: any): void;
+          (e: any): void;
+          (e: any): void;
+          (arg0: any): void;
+        }
+      ) {
+        if (e.touches.length == 1) {
+          singleTouchHandler(e);
+        } else if (e.type == "touchmove" && e.touches.length == 2) {
+          isDragging = false;
+          handlePinch(e);
+        }
+        else if (e.type == "touchend") {
+          unfocusCanvasScroll();
+        }
+      }
+
+      let initialPinchDistance: number | null = null;
+      let lastZoom = cameraZoom;
+
+      function handlePinch(e: {
+        preventDefault: () => void;
+        touches: { clientY: any }[];
+      }) {
+        e.preventDefault();
+
+        let touch1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        let touch2 = { x: e.touches[1].clientX, y: e.touches[1].clientY };
+
+        // This is distance squared, but no need for an expensive sqrt as it's only used in ratio
+        let currentDistance =
+          (touch1.x - touch2.x) ** 2 + (touch1.y - touch2.y) ** 2;
+
+        if (initialPinchDistance == null) {
+          initialPinchDistance = currentDistance;
+        } else {
+          // adjustZoom(null, currentDistance / initialPinchDistance)
+        }
+      }
+
+      function adjustZoom(zoomAmount: number, zoomFactor: number) {
+        if (!isDragging) {
+          if (zoomAmount) {
+            cameraZoom += zoomAmount;
+          } else if (zoomFactor) {
+            cameraZoom = zoomFactor * lastZoom;
+          }
+
+          cameraZoom = Math.min(cameraZoom, MAX_ZOOM);
+          cameraZoom = Math.max(cameraZoom, MIN_ZOOM);
+          focusCanvasScroll();
+        }
+      }
+
+      canvas.addEventListener("mousedown", onPointerDown);
+      canvas.addEventListener("touchstart", (e) =>
+        handleTouch(e, onPointerDown)
+      );
+      canvas.addEventListener("mouseup", onPointerUp);
+      canvas.addEventListener("touchend", (e) => handleTouch(e, onPointerUp));
+      canvas.addEventListener("mousemove", onPointerMove);
+      canvas.addEventListener("touchmove", (e) =>
+        handleTouch(e, onPointerMove)
+      );
+      if (!this.isPc) {
+        canvas.addEventListener(
+          "wheel",
+          (e) => adjustZoom(e.deltaY * SCROLL_SENSITIVITY),
+          { passive: false }
+        );
+      } else {
+        canvas.addEventListener(
+          "wheel",
+          (e) => adjustZoom((e.deltaY * SCROLL_SENSITIVITY) / 2),
+          { passive: false }
+        );
+        canvas.addEventListener("mouseover", focusCanvasScroll);
+        canvas.addEventListener("mouseout", unfocusCanvasScroll);
+      }
+
+      // Ready, set, go
+      setTimeout(() => {
+        draw();
+      }, 100);
+    },
+    toSelectedTicket(id_area: null) {
+      if (id_area) {
+        this.$router.push({
+          name: "RaceTicketSelected",
+          params: { race_id: this.$route.params["race_id"], area_id: id_area },
+        });
+      }
+    },
+  },
+  async created() {
+    this.raceDetail = await this.getRaceDetail(this.$route.params["race_id"]);
+    let data = await this.getAreas(this.$route.params["race_id"]);
+    this.areaOrigins = data.areas;
+    this.areas = _.groupBy(data.areas, "category_area");
+    _.forEach(this.areas, (area) => {
+      area.sort(function (a: { nm_area: string }, b: { nm_area: any }) {
+        return a.nm_area.localeCompare(b.nm_area, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
+    });
+  },
+  mounted() {
+    this.$nextTick(() => {
+      window.addEventListener("resize", this.onResize);
+    });
+    const ratio = 486 / 864;
+    this.style = {
+      width: this.$refs.bodyWidth.clientWidth + "px",
+      height: this.$refs.bodyWidth.clientWidth * ratio + "px",
+    };
+    this.canvas();
+  },
+});
+</script>
+<style lang="scss" scoped>
+#canvas {
+  width: 100%;
+  height: 100%;
+  background: #f2f2f2;
+}
+
+.area {
+  border-radius: 8px;
+  background-color: #fff;
+
+  .img-top {
+    /*height: 486px;*/
+    border-radius: 8px 8px 0 0;
+
+    img {
+      border-radius: 8px 8px 0 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    @media only screen and (max-width: 768px) {
+      height: 352px;
+    }
+  }
+
+  .content {
+    padding: 24px;
+  }
+
+  .radio-button {
+    width: 100%;
+    margin: 0 !important;
+    font-family: var(--font-sfp-b);
+    font-size: 15px;
+    font-weight: bold;
+    font-stretch: normal;
+    font-style: normal;
+    line-height: 1.33;
+    letter-spacing: normal;
+    text-align: left;
+    color: #000;
+    height: 48px;
+    background-color: #f2f2f2;
+    border-radius: 4px;
+    padding: 12px;
+    border: solid 1px #d8d9d9;
+
+    &:focus {
+      border: solid 1px #de2233;
+    }
+  }
+
+  .note {
+    padding: 12px 12px 0px 24px;
+
+    @media only screen and (max-width: 768px) {
+      padding-top: 12px !important;
+      padding: 12px;
+    }
+
+    .note-item {
+      font-family: var(--font-sfp);
+      font-size: 11px;
+      font-weight: bold;
+      font-stretch: normal;
+      font-style: normal;
+      letter-spacing: normal;
+      text-align: left;
+      color: #5e6265;
+      display: flex;
+      align-items: center;
+      padding-right: 20px;
+
+      @media only screen and (max-width: 768px) {
+        display: inline-flex;
+        padding-right: 16px;
+        padding-bottom: 8px;
+      }
+
+      .signal {
+        width: 12px;
+        height: 12px;
+        display: inline-flex;
+        margin-right: 4px;
+      }
+
+      &:nth-child(1) {
+        .signal {
+          border: solid 1px #d8d9d9;
+          background-color: #f9fbfe;
+        }
+      }
+
+      &:nth-child(2) {
+        .signal {
+          border-radius: 2px;
+          background-color: #bfd1cb;
+        }
+      }
+
+      &:nth-child(3) {
+        .signal {
+          border-radius: 2px;
+          background-color: #b9eb9e;
+        }
+      }
+
+      &:nth-child(4) {
+        .signal {
+          border-radius: 2px;
+          background-color: #b91122;
+        }
+      }
+
+      &:nth-child(5) {
+        .signal {
+          border-radius: 2px;
+          background-color: #8ba7bc;
+        }
+      }
+
+      .line {
+        width: 12px;
+        height: 4px;
+        margin-right: 4px;
+
+        &.line-gray {
+          background-color: #cac7b2;
+        }
+
+        &.line-red {
+          background-color: #f09192;
+        }
+      }
+    }
+  }
+
+  .btn-default {
+    width: 264px;
+    height: 48px;
+    font-family: var(--font-w6);
+    font-size: 16px;
+    font-weight: bold;
+    font-stretch: normal;
+    font-style: normal;
+    line-height: normal;
+    letter-spacing: normal;
+    text-align: center;
+    color: #b0b1b2;
+    border-radius: 4px;
+    background-color: #d8d9d9 !important;
+    border-color: #d8d9d9;
+
+    &.active {
+      background-color: #de2233 !important;
+      color: #fff;
+    }
+
+    &:hover {
+      border: solid 1px #de2233 !important;
+      background-color: #fff !important;
+      color: #de2233 !important;
+    }
+  }
+
+  .touch {
+    display: none;
+  }
+
+  @media only screen and (max-width: 768px) {
+    .img-top {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .touch {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: rgba(0, 0, 0, 0.5);
+      width: 100%;
+      height: 100%;
+      /*display: block;*/
+      position: absolute;
+      text-align: center;
+      z-index: 999;
+      background-color: rgba(0, 0, 0, 0.5);
+      width: 100%;
+      height: 100%;
+
+      img {
+        width: 132px;
+        height: auto;
+      }
+
+      .text {
+        padding-top: 24px;
+        width: 267px;
+        font-family: var(--font-w6);
+        font-size: 15px;
+        font-weight: bold;
+        font-stretch: normal;
+        font-style: normal;
+        line-height: 1.4;
+        letter-spacing: normal;
+        text-align: center;
+        color: #fff;
+      }
+    }
+
+    .content {
+      padding: 16px 12px;
+      padding-bottom: 0;
+
+      @media only screen and (max-width: 768px) {
+        padding-top: 8px;
+        padding-bottom: 16px;
+      }
+    }
+
+    .col-4 {
+      width: 100%;
+      padding-bottom: 12px;
+    }
+
+    .note {
+      padding-top: 0;
+      padding-bottom: 0;
+      display: block !important;
+
+      .note-item {
+        &:nth-child(1) {
+          display: inline-flex;
+        }
+
+        &:nth-child(2) {
+          display: inline-flex;
+        }
+
+        &:nth-child(4) {
+          display: inline-flex;
+        }
+
+        &:nth-child(5) {
+          display: inline-flex;
+        }
+
+        &:nth-child(6) {
+          display: inline-flex;
+        }
+
+        &:nth-child(7) {
+          display: inline-flex;
+        }
+      }
+    }
+  }
+}
+
+@media only screen and (max-width: 768px) {
+  .btn-default {
+    border: 1px solid #d8d9d9 !important;
+    width: 100%;
+    height: 48px;
+    font-family: var(--font-w6);
+    font-size: 16px;
+    font-weight: bold;
+    font-stretch: normal;
+    font-style: normal;
+    line-height: normal;
+    letter-spacing: normal;
+    text-align: center;
+    color: #b0b1b2;
+    border-radius: 4px;
+    background-color: #d8d9d9 !important;
+
+    &.active {
+      background-color: #de2233 !important;
+      color: #fff;
+    }
+  }
+}
+
+.none {
+  display: none !important;
+}
+
+.col-4 {
+  margin-bottom: 12px;
+}
+
+.mypage-info .group-info .head span {
+  font-family: var(--font-w6);
+  font-size: 16px;
+  font-weight: bold;
+  font-stretch: normal;
+  font-style: normal;
+  line-height: 1.38;
+  letter-spacing: normal;
+  text-align: left;
+  color: #202529;
+}
+
+.area .radio-button span {
+  font-family: var(--font-w6);
+  font-size: 15px;
+  font-weight: bold;
+  font-stretch: normal;
+  font-style: normal;
+  line-height: 1.33;
+  letter-spacing: normal;
+  text-align: left;
+  color: #000;
+  max-width: calc(100% - 40px);
+}
+
+.collapse-list {
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.radio-label {
+  display: -webkit-box;
+  max-width: 200px;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.btn-back {
+  border-radius: 4px;
+  border: solid 1px #b0b1b2 !important;
+  font-family: var(--font-w6);
+  font-size: 16px;
+  font-weight: bold;
+  font-stretch: normal;
+  font-style: normal;
+  line-height: normal;
+  letter-spacing: normal;
+  text-align: center;
+  color: #202529;
+  width: 100%;
+  height: 48px;
+  margin-top: 12px;
+}
+</style>
